@@ -21,6 +21,7 @@ import org.apache.http.client.methods.HttpPut
 import org.apache.http.entity.StringEntity
 import org.apache.http.params.HttpProtocolParams
 import ch.qos.logback.core.{Layout, LayoutBase, AppenderBase}
+import ch.qos.logback.classic.spi.{IThrowableProxy}
 import org.slf4j.LoggerFactory
 import dispatch.{Logger, :/, Threads, Http, Request => HR}
 
@@ -67,12 +68,13 @@ class HoptoadAppender extends AppenderBase[ILoggingEvent] {
   implicit def request2hoptoad(r: HR) = new HoptoadRequest(r)
 
   def is_secure(r: HR): HR = if (secure) r.secure else r
-  
+
   def append(eventObject: ILoggingEvent) = {
-    if (isStarted)
+    if (isStarted) {
       http on_error {
         case e => System.err.println("Unable to complete Hoptoad request: %s".format(e.getMessage))
       } future(is_secure(:/(baseUri) / "notifier_api" / "v2" / "notices") <<< eventObject >|)
+    }
   }
 }
 
@@ -99,6 +101,28 @@ class HoptoadLayout(@BeanProperty apiKey: String = null, @BeanProperty baseUri: 
     super.start
   }
 
+  def getFullStackTrace(maybeThrowable: Option[IThrowableProxy]): List[Backtrace] = {
+    maybeThrowable.map { t =>
+      val currentStackTrace = t.getStackTraceElementProxyArray.foldLeft(List[Backtrace]()){ (m,o) =>
+        new Backtrace(o.getStackTraceElement.getFileName, o.getStackTraceElement.getLineNumber, o.getStackTraceElement.getMethodName) :: m
+      }.reverse
+
+      currentStackTrace ::: getCausedByStackTrace(Option(t.getCause))
+
+    }.getOrElse(Nil)
+  }
+
+  def getCausedByStackTrace(maybeThrowable: Option[IThrowableProxy]): List[Backtrace] = {
+    maybeThrowable.map { t =>
+      // This is pretty lame, but the formatting of backtraces in hoptoad is pretty weak
+      val l = t.getStackTraceElementProxyArray.foldLeft(List[Backtrace]()) { (m,o) =>
+        new Backtrace(o.getStackTraceElement.getFileName, o.getStackTraceElement.getLineNumber, o.getStackTraceElement.getMethodName) :: m
+      } ::: List[Backtrace](new Backtrace("Caused by: " + t.getMessage , 0, "")) 
+
+      l.reverse ::: getCausedByStackTrace(Option(t.getCause))
+    }.getOrElse(Nil)
+  }
+
   def doLayout(e: ILoggingEvent) = {
     val environmentName = for {
       mdc <- Option(e.getMdc)
@@ -110,7 +134,7 @@ class HoptoadLayout(@BeanProperty apiKey: String = null, @BeanProperty baseUri: 
     } yield name
 
     val message = e.getFormattedMessage
-    val backtraces = e.getCallerData.map(x => new Backtrace(x.getFileName, x.getLineNumber, x.getMethodName))
+    val backtraces = getFullStackTrace(Option(e.getThrowableProxy))
     val request = for {
       mdc <- Option(e.getMdc)
       r <- Option(mdc.get(HoptoadLayout.REQUEST_URL))
@@ -135,6 +159,7 @@ class HoptoadLayout(@BeanProperty apiKey: String = null, @BeanProperty baseUri: 
       baseUri,
       request,
       project_root)
+    println("Notice is "+notice.toXml.toString)
     notice.toXml.toString
   }
 
@@ -193,7 +218,6 @@ class HoptoadNotice(apiKey: String,
   def toXml =
     <notice version="2.0">
       <api-key>{apiKey}</api-key>
-      <base-uri>{apiKey}</base-uri>
       <notifier>
         <name>Hoptoad Logback Notifier</name>
         <version>1.0.0</version>
