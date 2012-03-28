@@ -33,6 +33,7 @@ import dispatch.{Logger, :/, Threads, Http, Request => HR}
 class HoptoadAppender extends AppenderBase[ILoggingEvent] {
   @BeanProperty var apiKey: String = null
   @BeanProperty var secure: Boolean = false
+  @BeanProperty var baseUri: String = "hoptoadapp.com"
   
   val http = new Http with Threads with Logger {
     val LOG = LoggerFactory.getLogger("com.gs.logging.HoptoadAppender")
@@ -71,7 +72,7 @@ class HoptoadAppender extends AppenderBase[ILoggingEvent] {
     if (isStarted)
       http on_error {
         case e => System.err.println("Unable to complete Hoptoad request: %s".format(e.getMessage))
-      } future(is_secure(:/("hoptoadapp.com") / "notifier_api" / "v2" / "notices") <<< eventObject >|)
+      } future(is_secure(:/(baseUri) / "notifier_api" / "v2" / "notices") <<< eventObject >|)
   }
 }
 
@@ -91,9 +92,10 @@ object HoptoadLayout {
  * the Hoptoad service.
  * @author Aaron Valade <adv@alum.mit.edu>
  */
-class HoptoadLayout(@BeanProperty apiKey: String = null) extends LayoutBase[ILoggingEvent] {
+class HoptoadLayout(@BeanProperty apiKey: String = null, @BeanProperty baseUri: String = null) extends LayoutBase[ILoggingEvent] {
   override def start = {
     if (apiKey == null) throw new IllegalArgumentException("HoptoadLayout requires an apiKey to be set")
+    if (baseUri == null) throw new IllegalArgumentException("HoptoadLayout requires an baseUri to be set")
     super.start
   }
 
@@ -130,6 +132,7 @@ class HoptoadLayout(@BeanProperty apiKey: String = null) extends LayoutBase[ILog
       clazz.getOrElse("N/A"),
       message,
       backtraces,
+      baseUri,
       request,
       project_root)
     notice.toXml.toString
@@ -183,12 +186,14 @@ class HoptoadNotice(apiKey: String,
                     clazz: String,
                     message: String,
                     backtraces: Seq[Backtrace],
+                    baseUri: String,
                     request: Option[Request] = None,
                     project_root: Option[String] = None) {
 
   def toXml =
     <notice version="2.0">
       <api-key>{apiKey}</api-key>
+      <base-uri>{apiKey}</base-uri>
       <notifier>
         <name>Hoptoad Logback Notifier</name>
         <version>1.0.0</version>
