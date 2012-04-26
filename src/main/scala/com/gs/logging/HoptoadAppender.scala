@@ -35,7 +35,7 @@ class HoptoadAppender extends AppenderBase[ILoggingEvent] {
   @BeanProperty var apiKey: String = null
   @BeanProperty var secure: Boolean = false
   @BeanProperty var baseUri: String = "hoptoadapp.com"
-  
+
   val http = new Http with Threads with Logger {
     val LOG = LoggerFactory.getLogger("com.gs.logging.HoptoadAppender")
     def info(msg: String, items: Any*) = LOG.info(msg, items)
@@ -117,7 +117,7 @@ class HoptoadLayout(@BeanProperty apiKey: String = null, @BeanProperty baseUri: 
       // This is pretty lame, but the formatting of backtraces in hoptoad is pretty weak
       val l = t.getStackTraceElementProxyArray.foldLeft(List[Backtrace]()) { (m,o) =>
         new Backtrace(o.getStackTraceElement.getFileName, o.getStackTraceElement.getLineNumber, o.getStackTraceElement.getMethodName) :: m
-      } ::: List[Backtrace](new Backtrace("Caused by: " + t.getMessage , 0, "")) 
+      } ::: List[Backtrace](new Backtrace("Caused by: " + t.getMessage , 0, ""))
 
       l.reverse ::: getCausedByStackTrace(Option(t.getCause))
     }.getOrElse(Nil)
@@ -214,6 +214,7 @@ class HoptoadNotice(apiKey: String,
                     baseUri: String,
                     request: Option[Request] = None,
                     project_root: Option[String] = None) {
+  val noBacktrace = new Backtrace("None", 0, "No Backtrace")
 
   def toXml =
     <notice version="2.0">
@@ -226,7 +227,7 @@ class HoptoadNotice(apiKey: String,
       <error>
         <class>{clazz}</class>
         <message>{message}</message>
-        <backtrace>{backtraces.map(_.toXml)}</backtrace>
+        <backtrace>{backtraces.padTo(1, noBacktrace).map(_.toXml)}</backtrace>
       </error>
       {request.map(_.toXml).getOrElse(scala.xml.Comment("No request was set"))}
       <server-environment>
@@ -234,5 +235,4 @@ class HoptoadNotice(apiKey: String,
         <environment-name>{environmentName}</environment-name>
       </server-environment>
     </notice>
-
 }
